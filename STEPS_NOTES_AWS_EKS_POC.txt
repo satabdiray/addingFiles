@@ -1,0 +1,51 @@
+PIPELINE-1 FLOWDIAGRAM/STEPS
+Staeg1:
+1. we have added sourcecode, docker container file, then will create the image
+2. push image to Artifactory(will be taken care by pipeline.yaml file that will take the push to artifactory registry, pipeline.ml file handles the pushing of all components into the Artifactory registry)
+-need to create some template files like eks-sa.yaml
+3. deploy via helm
+
+Stage2:
+1. we pull the image from Artifactory, and then we'll deploy into the Eks cluster by using Helm charts
+2. write values.yaml, chart.yaml, create templates(may add deployment.yaml/eks-sa.yaml-service account that has permission to deploy to eks)
+
+=================================================================================================================================================
+PIPELINE-2 FLOWDIAGRAM/STEPS
+terraform:
+steps:
+1) in the src, need to create folder name as TF workspace name and add the variables file
+2) in the SRC, in the main level, need to add main.tf consists KMSresource, S3, IAM roles etc, output.tf, variables.tf
+3) using pipeline.yaml file create the resouces in AWS
+4) creation of a secret.ml file for sensitive data through vault, the use of main.tf, output.tf, and variables.tf files, and the pipeline.ml file for resource creation. 
+*****************************************************************************************************************************************************
+Summary
+-The conversation details a software deployment process using Artifactory and Helm charts. In the first stage, source code is combined into a container file, which is used to create an image and pushed to Artifactory. 
+-This image is then pulled and deployed to an EKS cluster using Helm charts. The deployment configuration is managed through files like values.ml and chart.ml. The process also involves creating a build from 
+the container file and pushing it to the Artifactory registry. 
+-Additionally, there is a mention of Terraform integration, but details are not provided. The pipeline.ml file automates the pushing of components to the Artifactory registry.
+
+
+************************************************************************************************************************************************
+Action Items:
+1. Study the integration between the harness and lightspeed platforms and how they are being used in the current setup.
+2. Review the project structure and the provided documentation to understand the steps for setting up the deployment pipeline.
+3. Create a Docker file for the Scala "Hello World" application.
+4. Push the Docker image to an artifact registry.
+5. Deploy the Docker image to the EKS cluster.
+6. Review the existing project's pipeline and Docker file structure to understand the approach.
+7. Update the TerraForm workspace and configuration files to match the current context.
+8. 
+
+-creating a Docker image for a Scala project using SBT commands. 
+-The steps include selecting a base image, copying source code, dependencies, and running SBT commands to create a JAR. 
+-the Docker image can be created directly from the source code without needing to create a JAR first. The image will be pushed to an artifact registry and deployed to an EKS cluster.
+-the use of Terraform workspaces, the need for a flow diagram, and the configuration of pipelines and artifact registries. 
+-to create a Docker image and deploy it to EKS, ensuring all necessary steps and configurations are in place.
+-Docker file to create a base image and copy all necessary files, including source code, properties files, and log files.
+-The next step is to run the SBT command for validation and jar creation, including passing arguments and environment variables.
+-The Docker file should be created directly from the source code to create a Docker image without needing to create a jar first.
+-The Docker file should include steps to create the image, and the pipeline will handle pushing the image to the artifact registry.
+-TerraForm workspaces are individual spaces for running TerraForm scripts without interfering with other users.
+
+
+
