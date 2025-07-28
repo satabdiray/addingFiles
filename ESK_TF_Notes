@@ -1,0 +1,212 @@
+
+
+
+
+=======================================================================================================================================================
+Docker Activities:
+1. docker buildx create --use
+2. docker buildx inspect --bootstrap
+3. docker buildx build --platform linux/amd64 -t 891376921217.dkr.ecr.us-east-1.amazonaws.com/spark-app-test/demo-test:latest --push .
+
+
+==================================================================Notes=====================================================================================
+1. develop a new Spark Scala Project using below versions
+   spark version: 3.5.1
+   scala version: 2.12.18
+   SBT version: 1.9.7
+2. build its jar using below steps 
+sbt clean assembly
+3. containerize the jar through docker
+4. register this image to ecr, by building/tagging/pushing
+	aws ecr get-login-password --region us-east-1 --profile admin-sso-profile | docker login --username AWS --password-stdin 891376921217.dkr.ecr.us-east-1.amazonaws.com
+	docker buildx build --platform linux/amd64 -t 891376921217.dkr.ecr.us-east-1.amazonaws.com/spark-app-test/demo-test:latest --push .
+5. create eks cluster
+	   eksctl create cluster \
+  --name spark-cluster \
+  --region us-east-1 \
+  --node-type t3.medium \
+  --nodes 2 \
+  --nodes-min 1 \
+  --nodes-max 3 \
+  --managed
+
+  kubectl apply -f k8s/spark-service-account.yaml
+  kubectl apply -f k*s/spaark-role-binding.yaml
+
+6. deploy this image to eks
+	kubectl apply -f k8s/spark-job.yaml
+
+7. validate the output
+	kubectl get pods -n spark-app-test
+	kubectl get pods -n spark-app-test --watch
+
+if any error in connection
+1. then check iam policies
+	create a role
+	attach s3 access policy
+	annotate kubernetes service account
+
+	kubectl describe pods spark-scala-job-driver-<xxx> -n spark-app-test
+	eksctl delete cluster --name eks-demo-test-cluster --region us-east-1 (deleting the cluster)
+	aws ecr delete-repository --repository-name spark-app-test/demo_test --region us-east-1 --force (for ecr if needed)
+====================================================================================================================================================
+helm chart
+
+====================================================================================================================================================
+Docker
+-Docker is a container runtime env that is frequently used with K8
+-
+
+
+====================================================================================================================================================
+wait_for_dag_a = ExternalTaskSensor(
+	task_id = ..,
+	external_dag_id = 'wait_for_dag_a',
+	external_task_id = None,
+	poke_interval = '60',
+	timeout=3600,
+	dag_dag_b
+)
+
+
+trigger_dag_b = TriggerDagRunOperator(
+	task_id =..
+	trigger_dag_id='dag_b'
+	conf={'param1': 'value1', ..}
+	da..,
+	wait_for_com
+)
+
+
+-------------
+
+with Dag('dyn_tasks', start_date=..) as dag:
+	start = DummyOperatot(..)
+
+	tables = ['t1', t2, ..]
+
+	for table in tables:
+		t = DummyOperation()
+		start >> t
+
+
+----------------
+
+with Dag('name', start_date=..) as dag:
+	start = DummyOperator()
+
+	with TaskGroup('running_tasks', tooltip=..) as running_tasks:
+		task_1 = DummyOpeartor(..)
+***************************************************************************************
+Steps to add docker image of spark application to ECR
+1. docker buildx create --use
+2. docker buildx inspect --bootstrap
+3. docker buildx build --platform linux/amd64 -t spark-job01:latest .
+4. aws ecr get-login-password --region us-east-1 \
+  | docker login --username AWS \
+  --password-stdin 891376921217.dkr.ecr.us-east-1.amazonaws.com
+
+5. docker tag spark-job-docker:latest 891376921217.dkr.ecr.us-east-1.amazonaws.com/spark-job:latest2
+6. docker push 891376921217.dkr.ecr.us-east-1.amazonaws.com/spark-job:latest2
+7. To delete spark job
+kubectl delete job sales-analysis -n spark 
+8. We added 2 jars(aws-java and hadoop-aws) inside docker_app and modified docker file. Then we build the docker.
+docker build -t spark-job:latest .
+9. docker buildx build \
+  --platform linux/amd64 \
+  -t spark-job-docker:latest\
+  --load .
+-------------------------------------
+1. docker buildx create --use
+2. docker buildx inspect --bootstrap
+3. docker buildx build --platform linux/amd64 -t 891376921217.dkr.ecr.us-east-1.amazonaws.com/spark-app-test/demo-test:latest --push .
+
+
+
+arn:aws:iam::891376921217:role/eks-spark-s3-role
+
+
+kubectl annotate serviceaccount spark-sa \
+  eks.amazonaws.com/role-arn=arn:aws:iam::891376921217:role/eks-spark-s3-role \
+  -n spark-app-test
+
+
+***************************************************************************************
+Debugging steps to resolve the errors encountered:
+7. kubectl get pods -n spark 
+8. kubectl auth can-i create pod
+
+aws eks describe-cluster --name my-eks-cluster --region us-east-1 --query "cluster.endpoint" --output text
+aws eks update-kubeconfig --region us-east-1 --name my-eks-cluster
+
+kubectl logs <pod-name> -n spark
+
+9. To destroy a container from ECR using tf
+terraform destroy -target=RESOURCE_TYPE.RESOURCE_NAME
+terraform destroy -target=aws_ecr_repository.spark_ecr
+
+terraform apply -target=RESOURCE_TYPE 
+terraform apply -target=aws_ecr_repository.spark_ecr
+
+10.clear docker-cache
+docker builder prune --all
+
+***************************************************************************************
+FROM apache/spark:3.5.0
+
+USER root
+
+# Install Python and dependencies
+RUN apt-get update && apt-get install -y python3 python3-pip
+
+# Install Hadoop-AWS library for S3 access
+COPY hadoop-aws-3.3.4.jar /opt/spark/jars/
+COPY aws-java-sdk-bundle-1.12.262.jar /opt/spark/jars/
+
+# Set environment variables
+ENV SPARK_HOME=/opt/spark
+ENV PATH=$PATH:$SPARK_HOME/bin
+ENV PYSPARK_PYTHON=python3
+
+WORKDIR /opt/spark/work-dir
+******************************************************************************************************************************
+-------------------------------------------------------
+Steps to configure AWS CLI:
+1.aws sts get-caller-identity
+2.aws sso login --profile admin-sso-profile
+3. aws s3 ls
+4.$env:AWS_PROFILE="admin-sso-profile"
+5. cluster name: my-eks-cluster 
+-------------------------------------------------------
+
+
+choco install kubernetes-cli
+Remove-Item "$env:USERPROFILE\.aws\credentials" -Force
+Remove-Item "$env:USERPROFILE\.aws\config" -Force
+$env:AWS_PROFILE = "admin-sso-profile"
+type %USERPROFILE%\.aws\config
+set AWS_PROFILE=admin-sso-profile
+aws eks update-kubeconfig --region us-east-1 --name my-eks-cluster
+
+
+export AWS_PROFILE=admin-sso-profile
+echo $AWS_PROFILE
+echo 'export AWS_PROFILE=admin-sso-profile' >> ~/.zshrc
+source ~/.zshrc
+*********************************************************************************************************************************
+Steps to Push Docker image to AWS ECR
+account Id aws: 891376921217
+1. aws ecr get-login-password --region us-east-1 --profile admin-sso-profile | docker login --username AWS --password-stdin 891376921217.dkr.ecr.us-east-1.amazonaws.com
+2. docker tag spark-job:latest 891376921217.dkr.ecr.us-east-1.amazonaws.com/spark-job:latest
+3. docker push 891376921217.dkr.ecr.us-east-1.amazonaws.com/spark-job:latest
+**********************************************************************************************************************************
+---------------------------------------------------------------------------------------------------
+Steps followed:
+
+
+1. EKS cluster create through TF-verified
+2.Docker image created for spark job
+3.Spark job image push to ECR
+4.Spark code(pySpark) for tf
+4.Run the tf
+*********************************************
