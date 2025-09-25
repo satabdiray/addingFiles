@@ -1,0 +1,104 @@
+1. Implement an S3 bucket watcher to trigger a Lambda function that fires an MWAA workload.
+2. Set up a Glue crawler to manage the metadata for raw and processed data in S3.
+3. Investigate options for data quality detection and management using Glue.
+4. Investigate the service account issue that is causing the Spark application to fail when accessing S3 storage.
+5. Explore the option of embedding the driver and executor YAML files within the executing container, instead of mounting them separately.
+6. usecase-Qx-transaction- workflow for managing Spark jobs using AWS Lambda and S3 flag files
+The process involves creating 12 flag files for 12 Spark jobs, each indicating the job's status (success or failure) through a cell script. If a job succeeds, the next job is triggered via AWS Lambda. 
+If a job fails, the subsequent job is not triggered. 
+This method ensures that jobs are executed sequentially, with each job's success or failure determining the next step in the workflow.
+-Create 12 separate flag files to track the status of each Spark job.
+-Set the flag file contents to indicate whether the job succeeded or failed.
+-Configure an AWS Lambda function to continuously monitor the S3 location where the flag files are generated
+-Implement the logic in the Lambda function to trigger the next job in the workflow based on the success or failure of the previous job.
+a)Flag Files for Spark Jobs
+b)AWS Lambda Integration with Flag Files
+-using AWS Lambda to continuously monitor S3 locations where the flag files are generated
+-AWS Lambda reads the flag file to determine if the job status is success or failure.
+-If the status is success, AWS Lambda triggers the next DAG through the Lambda function.
+-If the job fails, AWS Lambda does not trigger the subsequent job, ensuring the workflow only progresses if each job is successful.
+-This process continues with each successive job creating its own flag file, indicating the completion status for the next step in the workflow. 
+7.Usecase on Athena/Aurora
+-discuss the use of Aurora and Athena for data storage and processing.
+- benefits of Athena, including its serverless nature and compatibility with Iceberg tables.
+-the cost and complexity of using Aurora compared to Athena
+-use of Oracle DB on-premises and the potential benefits of using Aurora in the cloud
+-how Athena executes queries by reading metadata from the Glue data catalog.
+-benefits of using Iceberg tables for ACID compliance and time travel in Athena.
+-the use of Oracle DB on-premises to Aurora in the cloud.
+8. 
+the architecture and progress of moving data from on-prem Hadoop to AWS S3, triggering Lambda jobs, and executing Spark workflows. 
+They highlighted issues with MWAA triggers and the need for CTS support for firewall requests and IAM roles. The success criteria include running Spark workloads on EKS, data copying, and monitoring. 
+They debated using Elasticsearch on-prem versus OpenSearch on AWS and considered Athena over Iceberg for simplicity. 
+The team emphasized the importance of documentation and coordination with CTS to ensure smooth execution during the upcoming cloud party.
+- necessary IAM roles and firewall rules for the MWAA and Lambda integration.
+-we have a lot of data on prem-that's on Hadoop EAP cluster. We need to push them to AWS s3 from where lambda job picks it up. 
+-There's the trigger to lambda job, which then creates a workflow on mwaa and ultimately kicking a Spark job, which could be a simple Spark job, or one of those Qx jobs that reads those s3 files, 
+manipulates them, creates parquet resolved entities, and push them in a target s3 so that's that's the very high level what we wanted, 
+There's things like Aurora and then we have a glue catalog that maintains all the metadata about the data and so on so forth.
+We started out with mwaa triggers to fire off the job that did not work, 
+so I moved down to just submitting it directly from kubectl control. It still is not working, so we're at the point now we can submit workloads, but they're not actually running and doing anything. 
+Before cloudparty, I will have the bucket washer, the lambda compute we also trigger DAG. MWAA is not exposing anything that our lambda can use to fire a DAG. So that is also another task.
+There's another thing that's going to happen is when things hit our target, there's going to be a multi terabyte copy, bulk copy from this target back into our data center. 
+And so that's on the slide as a thing to to discuss how we intend to do that ongoing, but from also on the slide, from a purely simplicity, parsimony perspective, 
+it's a lot of this is not, is not mandatory, right? What we need to do is we need to execute workload that, I'm sorry. We need to copy data, execute a workload, monitor that workload, alert on it, and 
+then copy the data back into our data center. That's the workflow that we're looking for. And this is perfectly this is, this is the reference architecture. However, from this edge node, 
+we could also skip all of this complexity by just triggering it directly, a spark submitted from our edge node. If the network were open right here and we were allowed to do it, we skip every bit of this complexity and 
+go straight to the spark context job. What we would need to do to work around that is the monitoring and learning aspect 
+
+I've gone down to mounting our pod specs, submitting a work so workload that holds pods open. I've gone inside that pod, I've dumped every single dependency that we could possibly need, and I have run it locally, going with the lowest common denominator. And I'm still this is says Kerberos. 
+It's not Kerberos. There is some sort of application or configuration or security, something that is not letting, not letting our
+
+
+
+
+9. if you have 12 stages/jobs with 12 spark submit commands. Here each Spark job has a separate dag, then let's create 12 such flag files like, you know, say  _job status1, _job Status2, like that. 
+So first job finished, it just created another flag file, either through the Spark job as the last statement or the cell script. What you are writing to execute the Spark job in that cell script, 
+you can just add a statement to create a flag file. And if the job is success, then it will contain job succeeded. If it is failed, maybe it will capture the log and and mention the status has failed, like that.
+So, so you have AWS lambda which is continuously reading that s3 locations where this flag files are getting generated. So what you can do, you can read that file and see whether that status is success or failed. 
+If it is success, then it will trigger the second dag through AWS lambda. If it is failed, it will not trigger the subsequent job. So like that, if first one succeeded, second one got triggered based on that flag file. 
+Similarly, second is completed, it created a success flag file there in st and and then, like that flat pile, 2345, it will keep on getting generated. 
+
+
+
+The S3 bucket watcher would trigger a Lambda function that initiates an MWAA workload, which then drops a State file indicating it's time to turn the state on.
+logically, an s3 so going through, how do you want to watch it in s3 we can either schedule all of them to run every minute, or we can just put an s3 bucket watcher out have the bucket watcher trigger a lambda that 
+does nothing more than fire an mwaa workload, and then in that MWA workload, it can drop a State file that says it's time to turn stake in. 
+Communication, but they're also loosely covered, modularized.
+All of that for both the raw incoming data or the l2 incoming data, as well as the data that we've computed, both of those will be an s3 so we'll put a glue crawler over it. That group. 
+Glue crawler will do data quality checks, right so it can, it can assess the quality of the data. And normally it's an out of the box thing, the out of the box glue. Data quality has been disabled here. 
+So we're discussing, not us in this group, but as an organization. 
+Was discussing how to do data quality detection and management with glue.
+
+
+taking the base image from Spark, 354, JDK, 21
+There is a standard called container image build. Container image build does is it runs your Docker file says when when we are working in mwaa, anywhere serverless, 
+you have to have an image that has your, your full needs. And this is where, what I need to have spark submitted.
+Spark submit doesn't exist in mwaa, so what mwaa does is it starts a container with an image so that it can do what you want it to.
+Spark submit submits that inside the container, running this image fine, and then it sends out the driver. So a pod is created on yet a different node that's going to control all of the swarm of executors. 
+So this same thing, it's an image. It has what it needs to have to run PySpark/Scala/Java. So it says, start up my driver. My driver will use this image again. This is the same image I just built. 
+And then it will spawn off one or more executors, which in turn run.  
+So this is the actual application that's being run, and it's being run inside the container that has that image. So it's really important that we're able to import PySpark dot SQL. 
+It's not failing on that, which makes me think that our image is okay. PySpark exists in our image. 
+This dag says uses quantexa Spark, SA, service account, my pod template for the driver and the executor are here, and my jar workload here. If I run this with a version that says s3, a it fails, 
+telling me that there's a login issue. If I take that exact same thing, I'm not running it that way. I'm actually running it this way. 
+I take that exact same thing, and instead of running it as s3 if I run it as local file.
+We have 3 layers infrastructure i.e.
+a)infrastructure, maybe once a year, patch, whatever, 
+b)the next layer will have an image which will also go out kind of once
+c)the third thing we have is an individual application that'll go out a lot. So those are the three completely separate applications we have, modularized using the guidance.
+Summary:
+using a base image from Spark 3.5.4 with JDK 21, minimally modifying it for security. They explained the container image build process and the importance of having a complete image for serverless environments like MWAA. 
+The application, originally written in Scala, was modified and tested. Issues arose with S3 service account authentication, causing failures when using S3 input paths. 
+The solution involves embedding necessary files directly into the image and ensuring the image contains all dependencies, including PySpark. 
+The discussion also touched on modularizing applications into infrastructure, image, and individual application layers.
+discusses the container image build process, emphasizing the need for a Docker file to include all necessary dependencies for serverless environments like MWAA.
+the importance of having a Spark image that can run PySpark, Scala, or Java, and the role of Spark submit in MWAA.
+describes the creation of a pod and the spawning of executors, highlighting the need for the image to contain all necessary libraries and dependencies.
+
+if you have 12 stages/jobs with 12 spark submit commands. Here each Spark job has a separate dag, then let's create 12 such flag files like, you know, say  _job status1, _job Status2, like that. 
+So first job finished, it just created another flag file, either through the Spark job as the last statement or the cell script. What you are writing to execute the Spark job in that cell script, 
+you can just add a statement to create a flag file. And if the job is success, then it will contain job succeeded. If it is failed, maybe it will capture the log and and mention the status has failed, like that.
+So, so you have AWS lambda which is continuously reading that s3 locations where this flag files are getting generated. So what you can do, you can read that file and see whether that status is success or failed. 
+If it is success, then it will trigger the second dag through AWS lambda. If it is failed, it will not trigger the subsequent job. So like that, if first one succeeded, second one got triggered based on that flag file. 
+Similarly, second is completed, it created a success flag file there in st and and then, like that flat pile, 2345, it will keep on getting generated. 
