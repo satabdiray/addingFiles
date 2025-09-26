@@ -1,0 +1,51 @@
+KubernetesPodOperator (K8sPodOperator)
+What it is:
+ An Airflow operator that creates a Kubernetes Pod directly in your cluster.
+ You can run any container (Python, Bash, Spark, etc.), as long as it’s packaged into a
+Docker image.
+ Very flexible — you control Pod spec (CPU, memory, volumes, environment
+variables).
+Where to use it:
+ When you want fine-grained control of how pods are created.
+ For non-Spark workloads (ETL in Python, shell scripts, ML inference, etc.).
+ When your Spark job is already containerized (e.g., using Spark-on-K8s operator,
+Helm, or a prebuilt Spark Docker image).
+ If you need IRSA, secrets, config maps mounting into the pod.
+Good for:
+ Running general-purpose jobs in Kubernetes.
+ Triggering Spark jobs via a pod that runs spark-submit (custom container).
+ Jobs that need custom dependencies pre-installed in the image.
+Caution:
+ You are responsible for writing the full container logic.
+ Monitoring/logging may be less “native” compared to SparkSubmitOperator
+
+SparkSubmitOperator
+What it is:
+ Airflow operator built for submitting Spark jobs.
+ Runs spark-submit against a Spark cluster (standalone, YARN, Mesos, or Kubernetes).
+ Assumes Spark is already installed or available in the environment.
+Where to use it:
+ When you already have a running Spark cluster (on YARN, EMR, Dataproc, or K8s).
+
+ If you want tight integration with Spark (spark-submit arguments, configs, jars, etc.).
+ When you don’t want to manage Pod specs manually — the Spark cluster handles
+scheduling/executors.
+Good for:
+ Directly running Spark JARs, PySpark, SQL queries.
+ Classic Spark deployments where spark-submit is the standard.
+ Quick Spark job orchestration with Airflow.
+Caution:
+ Limited to Spark workloads only.
+ Requires Spark to be accessible in Airflow workers (or cluster config available).
+ Less control over Kubernetes pod spec compared to KubernetesPodOperator.
+
+When to choose what?
+ Use KubernetesPodOperator if:
+o You run Spark-on-K8s with Helm or Operator (containerized Spark job).
+o You need more Kubernetes control (volumes, IRSA, secrets).
+o You also run non-Spark jobs in the same DAG.
+ Use SparkSubmitOperator if:
+o You already have Spark cluster (EMR, Dataproc, Standalone).
+o You want direct spark-submit integration.
+o You’re mostly running Spark JARs/scripts without needing Kubernetes
+specifics.
