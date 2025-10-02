@@ -1,0 +1,166 @@
+1) Lambda receives the S3 event and calls MWAA
+
+Console path
+CloudWatch → Logs → Log groups → /aws/lambda/<your-fn-name> → latest Log stream
+
+Typical log lines
+
+START RequestId: 8d5e6... Version: $LATEST
+INFO Received S3 event: bucket=my-landing-bucket key=uploads/sample.csv
+INFO Creating MWAA CLI token for env=mwaa-prod
+INFO POST https://<webserver-host>/api/v1/dags/my_dag/dagRuns body={"conf":{"s3_bucket":"my-landing-bucket","s3_key":"uploads/sample.csv"}}
+INFO Airflow API response: status=200 body={"dag_run_id":"manual__2025-10-02T16:34:12+00:00","state":"queued"}
+END RequestId: 8d5e6...
+REPORT RequestId: 8d5e6...  Duration: 1123.45 ms  Billed Duration: 1200 ms  ...
+
+
+Quick filter (Logs Insights)
+CloudWatch → Logs Insights → select /aws/lambda/<your-fn-name> and run:
+
+fields @timestamp, @message
+| filter @message like /Received S3 event|Airflow API response|POST https/
+| sort @timestamp desc
+| limit 50
+
+
+What this confirms
+
+Lambda was invoked by S3
+
+It attempted POST to Airflow REST
+
+It got 200 and a dag_run_id
+
+If you see 401/403/timeout, the issue is IAM token/VPC reachability/security groups or MWAA access mode. Those will be visible right here in Lambda logs.
+
+2) MWAA Webserver received your request
+
+Console path
+CloudWatch → Logs → Log groups → /aws/airflow/<env-name>/webserver → latest Log stream
+
+Typical log lines
+
+[2025-10-02 16:34:12,210] webserver INFO - POST /api/v1/dags/my_dag/dagRuns 200 -
+[2025-10-02 16:34:12,211] webserver INFO - dag_id=my_dag created dag_run_id=manual__2025-10-02T16:34:12+00:00
+
+
+Quick filter (Logs Insights)
+Select /aws/airflow/<env-name>/webserver:
+
+fields @timestamp, @message
+| filter @message like /POST \/api\/v1\/dags\/my_dag\/dagRuns/
+| sort @timestamp desc
+| limit 50
+
+
+What this confirms
+
+Airflow’s webserver accepted your trigger request and created a dag run.
+
+3) MWAA Scheduler queued the run (this is the one you asked about)
+
+Console path
+CloudWatch → Logs → Log groups → /aws/airflow/<env-name>/scheduler → latest Log stream
+
+Typical log lines
+
+[2025-10-02 16:34:12,345] scheduler INFO - DAG Run my_dag manual__2025-10-02T16:34:12+00:00 created externally
+[2025-10-02 16:34:12,678] scheduler INFO - Queuing tasks for DagRun my_dag @ 2025-10-02T16:34:12+00:00
+[2025-10-02 16:34:12,680] scheduler INFO - conf: {'s3_bucket': 'my-landing-bucket', 's3_key': 'uploads/sample.csv'}
+
+
+Quick filter (Logs Insights)
+Select /aws/airflow/<env-name>/scheduler:
+
+fields @timestamp, @message
+| filter @message like /DAG Run my_dag|conf:/
+| sort @timestamp desc
+| limit 100
+
+
+What this confirms
+
+The DAG Run exists and the conf payload you passed from Lambda is visible.
+
+If you don’t see it, the webserver may have accepted but the scheduler may be failing to parse your DAG (check dag-processing logs below).
+
+4) MWAA Worker started your task(s)
+
+Console path
+CloudWatch → Logs → Log groups → /aws/airflow/<env-name>/worker → latest Log stream
+
+Typical log lines (example for a KubernetesPodOperator / Spark-submit task)
+
+[2025-10-02 16:34:13,120] worker INFO - Executing <Task(KubernetesPodOperator): spark_submit_stage_1>
+[2025-10-02 16:34:13,987] worker INFO - Pod created: my-dag-spark-xyz-123 in namespace=analytics
+[2025-10-02 16:35:20,512] worker INFO - Task succeeded: spark_submit_stage_1
+
+
+Quick filter (Logs Insights)
+Select /aws/airflow/<env-name>/worker:
+
+fields @timestamp, @message
+| filter @message like /Executing <Task|Task succeeded|Task failed|Pod created/
+| sort @timestamp desc
+| limit 100
+
+
+What this confirms
+
+Airflow actually executed your task(s).
+
+If using Spark on EKS, cross-check in EKS → Workloads/Pods and CloudWatch Container Insights for driver/executors.
+
+5) (Optional) DAG parsing / import issues
+
+If the scheduler didn’t queue anything, check DAG processing logs.
+
+Console path
+CloudWatch → Logs → Log groups → /aws/airflow/<env-name>/dag-processing
+
+Typical log lines
+
+[2025-10-02 16:34:10,001] dag-processing ERROR - Failed to import DAG my_dag: ModuleNotFoundError: No module named 'xyz'
+
+
+Quick filter
+
+fields @timestamp, @message
+| filter @message like /Failed to import DAG|ERROR|Traceback/
+| sort @timestamp desc
+| limit 100
+
+6) See the same in Airflow UI (good for confirming conf)
+
+MWAA → your env → Open Airflow UI → DAGs → my_dag → Grid
+
+Click the latest DAG Run → top right View Details → you’ll see Run ID and Conf.
+
+Click a task box → Logs (same content being shipped to CloudWatch).
+
+Correlating across services (pro tip)
+
+Have Lambda log a run_id and pass it as the DAG run conf so you can grep one token everywhere:
+
+Lambda log
+
+INFO run_id=8d5e6... POST /dagRuns conf={"run_id":"8d5e6...","s3_bucket":"...","s3_key":"..."}
+
+
+Then filter in Logs Insights across groups (run one query per group):
+
+fields @timestamp, @message
+| filter @message like /8d5e6/
+| sort @timestamp desc
+
+Common variants & where they show up
+
+401/403 from Airflow API → Lambda logs (bad token/role or missing airflow:CreateCliToken).
+
+Timeout / name not resolved → Lambda logs (VPC networking to MWAA private endpoint).
+
+DAG not appearing → dag-processing logs (import error).
+
+DAG queued but task never starts → scheduler OK, check worker logs and Airflow pools/queues.
+
+K8s pod fails to create → worker logs + EKS pod events (kubectl describe pod ...) show RBAC/SA/IRSA issues.
