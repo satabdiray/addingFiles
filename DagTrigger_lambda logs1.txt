@@ -1,0 +1,151 @@
+Totally doable without the Airflow UI. Here’s a practical “no-UI runbook” to confirm your Lambda → MWAA (DAG) trigger.
+
+1) Prove Lambda actually fired the DAG request
+
+Console: CloudWatch → Logs → Log groups → /aws/lambda/<your-func> → latest log stream
+Look for your own log lines around the upload time, e.g.:
+
+POST https://<mwaa-webserver>/api/v1/dags/<dag_id>/dagRuns
+body={"conf":{"s3_bucket":"...","s3_key":"..."}}
+Airflow API response: status=200 body={"dag_run_id":"manual__2025-10-02T16:34:12+00:00","state":"queued"}
+
+
+If you don’t log this yet, add it (example code at the end). A 200 with a dag_run_id is your first confirmation.
+
+Quick filter (Logs Insights):
+
+fields @timestamp, @message
+| filter @message like /POST .*\/api\/v1\/dags\/|Airflow API response|dag_run_id/
+| sort @timestamp desc
+| limit 100
+
+2) Verify MWAA accepted the call (no UI needed)
+
+A. CloudTrail (confirms token/auth to MWAA)
+Console → CloudTrail → Event history
+
+Filter Event source = airflow.amazonaws.com
+
+Look for CreateCliToken (or CreateWebLoginToken) with User identity = your Lambda execution role, at the trigger time.
+
+B. MWAA Webserver logs (confirms REST call reached Airflow)
+Console → CloudWatch → Logs → Log groups → /aws/airflow/<env>/webserver → latest stream
+Look for:
+
+POST /api/v1/dags/<dag_id>/dagRuns 200 -
+dag_id=<dag_id> created dag_run_id=manual__2025-10-02T16:34:12+00:00
+
+
+Logs Insights (webserver):
+
+fields @timestamp, @message
+| filter @message like /POST \/api\/v1\/dags\/.*\/dagRuns/
+| sort @timestamp desc
+| limit 50
+
+3) Verify the DAG run was queued (scheduler logs)
+
+Even if you can’t open the UI, the scheduler still logs to CloudWatch if logging is enabled.
+Console → CloudWatch → Logs → Log groups → /aws/airflow/<env>/scheduler → latest stream
+Look for:
+
+DAG Run <dag_id> manual__... created externally
+Queuing tasks for DagRun <dag_id> @ 2025-10-02T16:34:12+00:00
+conf: {'s3_bucket': '...', 's3_key': '...'}
+
+
+Logs Insights (scheduler):
+
+fields @timestamp, @message
+| filter @message like /DAG Run .* created externally|conf:/
+| sort @timestamp desc
+| limit 100
+
+
+If you don’t see scheduler entries but webserver shows a 200, check /aws/airflow/<env>/dag-processing for DAG import errors.
+
+4) Verify tasks actually started (worker logs) or pods (EKS)
+
+Worker logs: /aws/airflow/<env>/worker
+Look for:
+
+Executing <Task(KubernetesPodOperator): spark_submit_stage_1>
+Task succeeded: spark_submit_stage_1
+
+
+Logs Insights (worker):
+
+fields @timestamp, @message
+| filter @message like /Executing <Task|Task succeeded|Task failed|Pod created/
+| sort @timestamp desc
+| limit 100
+
+
+EKS console (if you use KPO / Spark on K8s):
+EKS → Clusters → <your cluster> → Workloads → Pods
+
+Filter by your namespace and (if you added them) labels for dag_id/task_id.
+
+New driver/executor pods appearing around the trigger time = confirmation the task ran.
+
+5) (Optional) S3 task logs (if enabled)
+
+If MWAA Task logs to S3 are enabled:
+S3 → your logs bucket (configured in MWAA “Logging”) → path like:
+
+logs/<dag_id>/<task_id>/<execution_date>/<try_number>.log
+
+
+Seeing a fresh log file there is also confirmation.
+
+6) Make confirmation unambiguous (tiny code additions)
+
+Add a correlation id and strict checks in Lambda so CloudWatch alone proves success:
+
+import json, os, uuid, boto3, requests, logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+MWAA_ENV = os.environ["MWAA_ENV"]
+DAG_ID = os.environ["DAG_ID"]
+mwaa = boto3.client("mwaa")
+
+def lambda_handler(event, context):
+    run_id = f"lambda_{uuid.uuid4().hex[:8]}"
+    # pull bucket/key from S3 event
+    rec = event["Records"][0]
+    bucket = rec["s3"]["bucket"]["name"]
+    key = rec["s3"]["object"]["key"]
+
+    # get token & webserver host
+    tok = mwaa.create_cli_token(Name=MWAA_ENV)
+    host = mwaa.get_environment(Name=MWAA_ENV)["Environment"]["AirflowWebServerUrl"]
+
+    payload = {"conf": {"run_id": run_id, "s3_bucket": bucket, "s3_key": key}}
+    url = f"https://{host}/api/v1/dags/{DAG_ID}/dagRuns"
+    headers = {"Authorization": f"Bearer {tok['CliToken']}"}
+
+    logger.info(f"POST {url} body={json.dumps(payload)}")
+    resp = requests.post(url, headers=headers, json=payload, timeout=10)
+
+    # log the exact response body
+    logger.info(f"Airflow API response: status={resp.status_code} body={resp.text}")
+
+    # Treat 200/201 with dag_run_id as a confirmed trigger
+    ok = resp.ok and "dag_run_id" in resp.text
+    return {"confirmed": ok, "status_code": resp.status_code, "run_id": run_id}
+
+
+Now you can confirm with a single Logs Insights search across Lambda logs for your run_id and status.
+
+Quick decision tree (no UI)
+
+Lambda logs show 200 + dag_run_id → Trigger confirmed.
+
+CloudTrail shows CreateCliToken from Lambda role → MWAA auth succeeded.
+
+Webserver logs show POST /dagRuns 200 → Airflow accepted the trigger.
+
+Scheduler logs show “DAG Run … created externally” (with conf) → Run queued.
+
+Worker logs or EKS pods appear → Tasks actually ran.
