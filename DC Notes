@@ -1,3 +1,19 @@
+Date 22nd June
+Action Items:
+1. Store the environment (e.g., NY or NJ) in the OneOps configuration as a variable and read it in the code using `applicationContext.getProperty` 
+so that the correct environment-specific values are used.
+2. Add a `GRE_STATUS` column to the completeness table and populate it with 'completed' when the counts match and 'failed' when the counts do not match, so that the UI can derive green and red colors.
+3. Add `GRU_STATUS` and `GRU_JOB_COMPLETION_TIME` columns to the lookup table and populate them from the GRU job status and completion time so that the completeness logic can use these values.
+--Do we need to introduce these columns in the lookup table?
+
+4. After the scrum call, discuss and clarify the amber status logic (reload behavior, when amber should be shown, and how it interacts with GRU and BI counts) with the relevant stakeholders.
+5. Create two separate staging tables (one for each instance, e.g., NY and NJ) and parameterize the staging table name in the job configuration so that the correct staging table is used in UAT and production.
+6. Before going live, run a test with two jobs loading data into the same staging table in parallel to verify that there are no locking or contention issues.
+7. Update the final table load logic so that inserts and updates use a WHERE clause to target the correct instance/partition, avoiding contention and locks.
+
+
+
+=========================================================================================================================================================================================
 The meeting (led by Rakesh, explaining to what seems like Vanshika) covered a DQ check table with an SCD-style active flag pattern. The core problem: when a check passes on re-run, the previous "failed + active" record needs to be deactivated. Two approaches were proposed to handle this in Spark/Oracle.
 The data model (from Image 2):
 cob_date | dwh_business_date | row_type | instance | status | active_flag | N (inactive?)
