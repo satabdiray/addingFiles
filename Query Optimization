@@ -1,0 +1,55 @@
+Simple rule of thumb going forward
+Always report the number from Impala's Query Profile / History page (Open Duration), not the timer shown in the SQL editor UI.
+The editor timer is just a convenience indicator for you while writing/testing queries — it's not meant to be an official metric. The Impala-side Open Duration is what should go into any report, ticket.
+
+Simple rule of thumb going forward
+
+Always report the number from Impala's Query Profile / History page (Open Duration), not the timer shown in the SQL editor UI.
+
+The editor timer is just a convenience indicator for you while writing/testing queries — it's not meant to be an official metric. The Impala-side Open Duration is what should go into any report, ticket.
+"Open Duration" refers to how long the query (or job) session stayed open from the moment it was submitted until it finished — essentially the wall-clock time the query took to fully execute and complete, including any time spent waiting for resources, not just active processing time.
+In query engines like Impala/Hive (which this profile appears to be from), a query goes through phases such as:
+
+Submission — query is registered
+Planning/Compilation — query plan is generated
+Execution — the actual work (scans, joins, aggregates, exchanges, etc.)
+Fetching results — client retrieves the output rows
+Close — the query handle is closed/released
+
+Open Duration typically spans from submission until the query is closed — so it can be longer than just the raw execution time you'd get by summing up the individual operator times in the plan.
+That's actually consistent with what we see here:
+
+Sum of major operator times in the plan (SCAN, JOINs, AGGREGATEs, EXCHANGEs) ≈ tens of milliseconds
+But Open Duration = 6.53 seconds
+
+This gap suggests most of the 6.53s wasn't spent in the actual query execution shown in the plan — it was likely spent in overhead outside execution, such as:
+
+Client fetch time (rows being pulled back slowly)
+The query session sitting idle/open after execution finished, before being closed
+Queueing/admission control delay before execution started.
+
+Open Duration
+This is the total lifetime of the query handle — from when the client submits the query until the query is closed (either explicitly by the client or by session/idle timeout). It includes:
+
+Planning/compilation time
+Admission control wait time (queuing if resources aren't available)
+Actual execution time
+Time spent waiting for the client to fetch results (this can be significant if the client is slow to pull rows, or if the client never closes the query promptly)
+Idle time before the query handle is closed
+
+Execution Time
+This is specifically the time Impala's coordinator and executors spend actually running the query plan — the scans, joins, aggregations, exchanges, etc. This is what you see reflected in the operator-level timings in the Plan tab.
+Why the gap matters in your case
+In your job:
+
+Individual plan operators sum to roughly tens of milliseconds
+Open Duration = 6.53 seconds
+
+That's a huge gap. Common causes:
+
+Client didn't fetch results promptly — the query finished executing quickly, but the client (e.g., a BI tool, JDBC/ODBC client, or Hue) took time to pull the result rows, or left the session open
+Admission control queuing — the query waited before it even started executing (this would show up in the Summary tab as "Planning" or queue wait time)
+Session idle time — the query completed but wasn't closed right away
+
+Where to check
+The Summary tab in your profile view will show a phase-by-phase breakdown (Planning, Admission, Execution, etc.) with actual timestamps — that's the fastest way to see exactly where the 6.53s went, rather than inferring it from the Plan tab alone.
