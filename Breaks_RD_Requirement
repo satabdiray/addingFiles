@@ -1,0 +1,57 @@
+Here's a rephrased, clearer version of that requirement:
+
+EOD Snapshot Load Logic — Missing Row Type Recovery
+
+Current behavior
+The EOD snapshot load process reads data from the hourly snapshot and loads it into the EOD table, driven by a business-date parameter (SOD). Each run is designed to process the current day's data and move on.
+
+The problem (edge case)
+There's no guarantee that all instrument row types get fully loaded on a given business day. For example, if the Sept 1 run only captures a subset of row types (due to a delay, partial data availability, or failure), the process currently has no way to know this happened — and no mechanism to go back and pick up what was missed. As a result, those unloaded row types could be silently skipped forever, since the next day's run only looks at that day's data, not backfill from the prior day.
+
+Why it matters
+Every row type must eventually be captured for every business day — none can be permanently dropped just because a run happened to be incomplete.
+
+Proposed solution
+Introduce a checkpoint/status table in Oracle (not Hive) that tracks completeness per business day:
+
+Flag = Y → all row types for that business day were successfully loaded. Nothing more to do for that date.
+Flag = N → the load was incomplete for that business day. On the next run, the job should detect this and retry/backfill the missing row types for that date before or alongside processing the new day's data.
+
+Net effect
+This turns the load process from a simple "process today only" model into a resumable, self-healing model — each run checks not just today's data, but also whether any prior day was left incomplete, and closes that gap automatically.
+
+========================
+## Summary of Requirements — Breaks Discussion (Raphi & Sadafi)
+
+**1. JDBC Connection / Null Pointer Fix (EOD & Hourly scripts)**
+- EOD and hourly jobs share a bug: audit log tables make multiple JDBC calls, and the connection is opened inside a `try` block but not available in `catch` — causing the null pointer exception seen that morning.
+- Fix: refactor using a helper class to properly manage the JDBC connection across try/catch, so audit logging doesn't fail.
+- Raphi is validating this fix and will proceed once testing confirms it works.
+
+**2. EOD Snapshot Load Logic — Missing Row Type Recovery**
+- Current flow: hourly snapshot data is read and loaded into the EOD snapshot, driven by an SOD (start-of-day) parameter/current business date.
+- Edge case to handle: if not all instrument row types were loaded for a given business day (e.g., Sept 1), the next day's run must detect and backfill what was missed — no row type should be permanently skipped for a business day.
+- Required solution: add a **checkpoint/lookup table** (on Oracle, not Hive) that flags each business day as:
+  - **Y** = all row types successfully loaded/copied
+  - **N** = incomplete — must be picked up and completed on the next run
+- This changes the existing loading approach to be resumable rather than strictly day-forward.
+
+**3. Team Coordination**
+- Raphi is being added to help since progress (previously owned by "her"/Princey) has been slow — Sadafi holds her accountable for all Breaks work.
+- Raphi should sync directly with her to divide/coordinate the EOD and hourly logic changes so they don't conflict.
+
+**4. Testing & Release**
+- The new Breaks approach requires **extensive QAT testing** since it's a full approach change — not deliverable "tomorrow."
+- All packages (including one from "Kushal") must be included before QAT starts, even if that adds a day or two of delay.
+
+**5. Iceberg Migration (Next Phase, after Breaks is stable)**
+- Two options under consideration:
+  1. In-place migration of existing Hive tables to Iceberg, or
+  2. Create new Iceberg objects and copy data over.
+- Storage is on-prem (Cloudera), not S3.
+- Cloud migration is constrained by **data clearance requirements (CBDC-cleared data only)** — uncleared data cannot move to cloud as-is.
+- Leaning toward creating new Iceberg objects and migrating those off-prem incrementally, rather than in-place conversion.
+
+**6. Documentation**
+- The new Breaks approach is currently only documented informally (in an old email, possibly from July) — not yet in Jira.
+- Action: Sadafi to forward that email to Raphi and ensure the new approach details get added to Jira for QA visibility.
