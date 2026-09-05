@@ -1,1 +1,35 @@
 
+Subject: Request to increase Copilot credit limit
+
+Hi [Manager],
+
+I'd like to request an increase to my GitHub Copilot credit limit. I've exhausted my monthly allocation and currently can't use it for the remainder of the month.
+
+**Why the usage was high**
+
+The consumption came from a concentrated set of deliverables in a short window:
+
+- Investigation and fixes for critical issues across the Auto Match, Manual Match, and Breaks KPI flows
+- Iceberg migration activities
+
+With several tasks assigned at once and limited time, I used Copilot to get up to speed quickly on unfamiliar areas and turn around the fixes in time.
+
+A second factor was the VS Code version I was on. Copilot's auto model selection wasn't available in 1.108, which carries roughly a 10% discount on premium request usage. Without it I had to run requests against whichever models were available to me, at full cost. I've since upgraded to 1.112 and now have auto mode available.
+
+**Going forward**
+
+I'll default to auto mode for my assignments and manage usage to stay within the allocation.
+
+**A structural request**
+
+Copilot credits are currently allocated per individual, and our team has no cost center set up. That means credits can't be pooled — one person can run dry mid-month while unused allocation sits elsewhere on the team. A dedicated team-level cost center would let the capacity go where it's actually needed and prevent this from recurring.
+
+Could you help with:
+
+1. An increase to my credit limit so I can continue without interruption this month
+2. Getting a team cost center established for Copilot going forward
+
+Happy to share a breakdown of the work the usage went toward.
+
+Thanks,
+SSR
